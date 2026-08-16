@@ -181,12 +181,21 @@ with formally verified primality proofs for 2048-bit prime $p$ and 256-bit prime
 ensure our library is practically usable. Finally, we extract OCaml and WebAssembly code from our certified 
 Rocq implementation. We demonstrate the applicability of our framework by implementing a voting client, extracted to WebAssembly from Rocq proofs, and a server, extracted to OCaml from Rocq proofs, for Approval Voting and a complete Helios election verifier that validates IACR elections (2023, 2024), verifying ballot proofs, tallying, and trustee decryption proofs. To the best of our knowledge, this is the first formal verification of $\Sigma$-protocols in Rocq that supports simultaneous extraction to both WebAssembly and OCaml. Our proofs can be accessed from this \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/README.md}{\textcolor{blue}{anonymous repo}}, which contains 30,000 lines of Rocq proofs.
 
+\subsection{Contributions}
+In summary, this paper makes the following contributions:
+\begin{itemize}
+  \item \textbf{A comprehensive certified library of $\Sigma$-protocols.} We formalise the Schnorr, Okamoto, and Chaum-Pedersen protocols, ElGamal encryption and decryption proofs, and proofs of linear relations over Pedersen commitments, together with generic $n$-ary Parallel, And, Or, Eq, and Neq compositions, and we prove completeness, special soundness, and special honest-verifier zero-knowledge for every construction (Section~\ref{schn_proof}).
+  \item \textbf{Reusable proof infrastructure.} Our development rests on an abstract vector-space layer that cleanly separates group elements from field elements, and on a lightweight, list-based probability monad for reasoning about uniform distributions. This infrastructure is what makes the $n$-ary compositions and their information-theoretic zero-knowledge proofs tractable, and it repeatedly surfaced hidden assumptions: for example, our special soundness theorem for the Neq composition replaces the customary assumption of independent generators with an explicit, unconditional dichotomy (Section~\ref{schn_proof}).
+  \item \textbf{One proof, two certified implementations.} To the best of our knowledge, ours is the first $\Sigma$-protocol formalisation that extracts to both OCaml (for the backend) and WebAssembly (for the frontend) from a single set of proofs. The WebAssembly path goes through CertiCoq-Wasm, a compiler that is itself verified in Rocq, so semantics preservation is machine-checked all the way down to the WebAssembly code (Section~\ref{coq_theorem}). This pipeline is enabled by Rocq's constructive logic; developments in classical frameworks such as Isabelle/HOL do not directly support extraction of executable code.
+  \item \textbf{Real-world case studies.} We implement a complete client--server system for Approval Voting and a certified Helios verifier, which we run on real bulletin-board data from the IACR 2023 and 2024 elections (Section~\ref{case_studies}).
+\end{itemize}
+
 \subsection{Outline}
 The remainder of the paper is organised as follows. 
 Section \ref{sigma_protocol} introduces zero-knowledge proofs and $\Sigma$-protocols, with emphasis on their role in electronic voting. 
 Section \ref{coq_theorem} briefly presents the Rocq theorem prover and the infrastructure used for extraction to targets such as WebAssembly. 
 Section \ref{schn_proof} develops our formal encoding of the Schnorr protocol, our model of uniform distributions, the main $\Sigma$-protocol compositions, concrete modular arithmetic instantiations, and our approach to extractor/simulator complexity. 
-Section \ref{case_studies} demonstrates the practical use of the library through an Approval Voting client-server workflow and a certified Helios election verifier for IACR data. Finally, Section \ref{rel_work} discusses related work, current limitations, and directions for future research.
+Section \ref{case_studies} demonstrates the practical use of the library through an Approval Voting client-server workflow and a certified Helios election verifier for IACR data, and reports performance measurements for the extracted code. Finally, Section \ref{rel_work} discusses related work, current limitations, and directions for future research.
 
 
 
@@ -243,7 +252,13 @@ for electronic voting in WebAssembly and OCaml.
 \section{The Rocq Theorem Prover}\label{coq_theorem}
 The Rocq theorem prover~\cite{the_coq_development_team} is an interactive proof assistant that lets users define mathematical objects, state specifications about them, and prove that the definitions satisfy those specifications. Proof writing is the most challenging step; users guide Rocq using \emph{tactics}, a domain-specific language for building proofs incrementally. While Rocq offers some automation (e.g., decision procedures and proof search), human guidance is usually required to complete non-trivial proofs. Its popularity stems from dependent types, which allow encoding arbitrary mathematical statements directly in its logic, and from its ability to extract certified programs to efficient code in OCaml, Haskell, or Scheme.  Rocq has verified many real-world projects, including the CompCert C compiler~\cite{10.1145/1111037.1111042} (used by companies such as AbsInt\footnote{https://www.absint.com/partners.htm}), the Fiat-Crypto~\cite{8835346} library (used in BoringSSL for Chrome, Android, and CloudFlare), and the ConCert smart contract framework~\cite{10.1145/3372885.3373829}.
 
-We use CertiRocq \cite{anand2017certicoq} that turns Rocq programs into WebAssembly (wasm) with machine-checked correctness guarantees. For wasm, CertiRocq extends its extraction pipeline to enable compilation of Rocq developments into \texttt{.wasm} binaries. The wasm backend, originally developed as CertiCoq-Wasm~\cite{meier2025certicoq} and now integrated into CertiRocq, is itself implemented and verified in Rocq with its semantics mechanised against the WebAssembly standard. It takes Rocq as input and compiles it to wasm code by mapping Rocq's primitive integer operations directly to native wasm instructions. The key insight is that programs proven correct within Rocq can be extracted, compiled, and executed in a wasm runtime while preserving their formal semantics. This bridges high-assurance formal verification with practical deployment, allowing certified components such as cryptographic protocols or voting primitives to run securely in web or sandboxed environments without sacrificing the guarantees established in the proof assistant. 
+We use CertiRocq \cite{anand2017certicoq} that turns Rocq programs into WebAssembly (wasm) with machine-checked correctness guarantees. For wasm, CertiRocq extends its extraction pipeline to enable compilation of Rocq developments into \texttt{.wasm} binaries. The wasm backend, originally developed as CertiCoq-Wasm~\cite{meier2025certicoq} and now integrated into CertiRocq, is itself implemented and verified in Rocq with its semantics mechanised against the WebAssembly standard. It takes Rocq as input and compiles it to wasm code by mapping Rocq's primitive integer operations directly to native wasm instructions. The key insight is that programs proven correct within Rocq can be extracted, compiled, and executed in a wasm runtime while preserving their formal semantics. This bridges high-assurance formal verification with practical deployment, allowing certified components such as cryptographic protocols or voting primitives to run securely in web or sandboxed environments without sacrificing the guarantees established in the proof assistant.
+
+\subsection{Reused Components}\label{reused_comp}
+Our development builds on existing formal infrastructure where possible: the primality of the Helios parameters is established with the Coqprime library~\cite{thery2007primality}, and the WebAssembly backend is provided by CertiRocq~\cite{anand2017certicoq,meier2025certicoq}. The remaining components---the algebraic hierarchy of groups, fields, and vector spaces, the probability monad (Section~\ref{uniform_dist}), the efficient modular arithmetic for Schnorr groups and prime fields, and all protocol definitions and security proofs---were developed from scratch. This choice was deliberate: our design goal of extracting efficient executable code requires constructive definitions with a small extraction footprint, which precluded the reuse of existing proof-oriented libraries whose definitions are not geared towards computation.
+
+\subsection{Trusted Computing Base}\label{tcb}
+It is important to be precise about which components of our pipeline are formally verified and which must be trusted. On the verified side are: all protocol-level definitions together with their machine-checked proofs of completeness, special soundness, and special honest-verifier zero-knowledge; the modular arithmetic for the Schnorr group and prime field, including the Coqprime primality proofs of the 2048-bit and 256-bit Helios parameters; and, on the frontend path, the compilation from Rocq to WebAssembly, since CertiCoq-Wasm is itself implemented and verified in Rocq against the mechanised WebAssembly semantics. The trusted side comprises: the Rocq kernel (as in any Rocq development); the standard extraction mechanism to OCaml, which is not verified, together with the OCaml compiler and runtime; the WebAssembly engine of the browser that executes the extracted voting client; the unverified parser that reads bulletin-board data in our Helios verifier; and the source of randomness---our certified functions take random field elements as explicit inputs, so sampling this randomness happens outside the verified core, and the usual caveats about cryptographic random number generation apply. This trusted computing base is comparable to that of prior extraction-based developments~\cite{287095}, with the notable difference that on the WebAssembly path the unverified extraction step is replaced by a verified compiler, extending the machine-checked guarantees from the proof assistant down to the deployed code.
 
 
 
@@ -391,7 +406,7 @@ Proof using -(x R). (* proof terms omitted *) Qed.
   
 \end{lstlisting}
  
-\subsection{Uniform Distribution}
+\subsection{Uniform Distribution}\label{uniform_dist}
 To reason about special honest-verifier zero-knowledge proof 
 intuitively, we need a model for uniform probability distributions. 
 We follow \cite{erwig2006functional}  and 
@@ -539,59 +554,9 @@ is to allow the prover a controlled degree of freedom to \emph{cheat} on stateme
 
 Our Rocq formalisation of the OR-composition of $\Sigma$-protocols supports $n \geq 2$ statements with arbitrary generators for each statement, enabling proofs of knowledge for relations $g_i^{x_i} = h_i$. The function \texttt{\seqsplit{generalised\_construct\_or\_conversations\_schnorr}} constructs a proof for the relation
 $\{ (x_1, x_2, \ldots, x_n) \mid h_1 = g_1^{x_1} \lor h_2 = g_2^{x_2} \lor \cdots \lor h_n = g_n^{x_n} \}$, 
-where the prover knows the witness for the relation indicated by the index \texttt{rindex}. One advantage of this generic formalisation is that we can instantiate \( n \) with any finite number of statements at compile time, thereby uniformly capturing arbitrary-length disjunctions without modifying the underlying protocol definition.  Similarly, we define the simulator \texttt{\seqsplit{generalised\_construct\_or\_conversations\_simulator}}, which generates accepting transcripts for the disjunctive relation without access to any witness. Building on this, we construct two distributions: \texttt{\seqsplit{generalised\_or\_schnorr\_distribution}}, which depends on the secret witness \(x\), and \texttt{\seqsplit{generalised\_or\_simulator\_distribution}}, which is independent of any witness. These distributions are then used to establish the zero-knowledge property captured by \texttt{\seqsplit{generalised\_or\_special\_honest\_verifier\_zkp}}. The two distributions are identical and therefore the protocol is information-theoretically zero-knowledge. The formalisation proves three security properties: completeness (honest execution always verifies), special soundness (which recovers a witness from two accepting transcripts with the same commitments but different challenges), and special honest-verifier zero-knowledge (the distribution of real transcripts involving the witness is identical to the simulator distribution without the witness). The source code for this section can be accessed in the \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Crypto/OrSigmaGen.v}{\textcolor{blue}{OrSigmaGen.v}} file.
+where the prover knows the witness for the relation indicated by the index \texttt{rindex}. One advantage of this generic formalisation is that we can instantiate \( n \) with any finite number of statements at compile time, thereby uniformly capturing arbitrary-length disjunctions without modifying the underlying protocol definition.  Similarly, we define the simulator \texttt{\seqsplit{generalised\_construct\_or\_conversations\_simulator}}, which generates accepting transcripts for the disjunctive relation without access to any witness. Building on this, we construct two distributions: \texttt{\seqsplit{generalised\_or\_schnorr\_distribution}}, which depends on the secret witness \(x\), and \texttt{\seqsplit{generalised\_or\_simulator\_distribution}}, which is independent of any witness. These distributions are then used to establish the zero-knowledge property captured by \texttt{\seqsplit{generalised\_or\_special\_honest\_verifier\_zkp}}. The two distributions are identical and therefore the protocol is information-theoretically zero-knowledge. The formalisation proves three security properties: completeness (honest execution always verifies), special soundness (which recovers a witness from two accepting transcripts with the same commitments but different challenges), and special honest-verifier zero-knowledge (the distribution of real transcripts involving the witness is identical to the simulator distribution without the witness). The source code for this section can be accessed in the \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Crypto/OrSigmaGen.v}{\textcolor{blue}{OrSigmaGen.v}} file. The corresponding Rocq definitions are shown in Listing~\ref{or_proof} in Appendix~\ref{appendix_listings}.
 
-\begin{lstlisting}[frame=single, language=Coq, caption={Or-$\Sigma$-Protocol},
-label={or_proof},captionpos=t, basicstyle=\ttfamily\footnotesize,
-abovecaptionskip=-\medskipamount]
-Definition generalised_construct_or_conversations_schnorr {n : nat} 
- (rindex : Fin.t (2 + n)) (x : F) (gs hs : Vector.t G (2 + n))
- (uscs : Vector.t F ((2 + n) + (1 + n))) (c : F) : 
- @sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n).
-Proof. (* proof terms omitted. *) Defined.
 
-Definition generalised_construct_or_conversations_simulator {n : nat} 
- (gs hs : Vector.t G (2 + n)) (uscs : Vector.t F ((2 + n) + (1 + n)))  
- (c : F) :  @sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n).
-Proof. (* proof terms omitted. *) Defined.
-
-(* schnorr OR distribution *)
-Definition generalised_or_schnorr_distribution  {n : nat} 
- (lf : list F) (Hlfn : lf <> List.nil) (rindex : Fin.t (2 + n)) 
- (x : F) (gs hs : Vector.t G (2 + n)) (c : F) : 
- dist (@sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n)) := 
- uscs <- repeat_dist_ntimes_vector 
-  (uniform_with_replacement lf Hlfn) ((2 + n) + (1 + n)) ;;
- Ret (generalised_construct_or_conversations_schnorr 
-  rindex x gs hs uscs c).
-
-(* simulator distribution *)
-Definition generalised_or_simulator_distribution {n : nat} 
- (lf : list F) (Hlfn : lf <> List.nil) 
- (gs hs : Vector.t G (2 + n)) (c : F) : 
- dist (@sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n)) :=
- (* draw ((m + (1 + n)) + (m + n)) random elements *)
- usrs <- repeat_dist_ntimes_vector 
-  (uniform_with_replacement lf Hlfn) ((2 + n) + (1 + n)) ;;
- Ret (generalised_construct_or_conversations_simulator 
-  gs hs usrs c).
-
-(* Information theoretic proofs *)
-Lemma generalised_or_special_honest_verifier_zkp {n : nat}
- (x : F) (* secret witness *)
- (gs hs : Vector.t G (2 + n)) (rindex : Fin.t (2 + n))
- (* Prover knows rindex relation *) 
- (R : Vector.nth hs rindex = Vector.nth gs rindex ^ x) : 
- forall (lf : list F) (Hlfn : lf <> List.nil) (c : F),
- List.map (fun '(a, p) => 
-  (generalised_or_accepting_conversations gs hs a, p))
-  (generalised_or_schnorr_distribution lf Hlfn rindex x gs hs c) = 
- List.map (fun '(a, p) => 
- (generalised_or_accepting_conversations gs hs a, p))
- (generalised_or_simulator_distribution lf Hlfn gs hs c).
-Proof. (* terms omitted *) Qed.
-
-\end{lstlisting}
 
 \subsection{Okamoto Protocol}
 
@@ -741,140 +706,16 @@ The above $\Sigma$-protocol is particularly powerful in blockchain privacy appli
 
 Note that sometimes the direct approach of just revealing $r=\sum_{i=1}^{n} \alpha_i \cdot r_i$ and checking that $g^z h^r = \prod_{i=1}^n C_i^{\alpha_i}$ suffices in standalone protocols (see, e.g, the tallying protocol of~\cite{CFSY96}).
 
-\subsection{Efficient Modular Arithmetic}
-As stated earlier, to ensure the ease of proving and modularity, 
-we worked with an (abstract) vector space. However, to execute the code of 
-our formalisation, we need to instantiate the vector space with a concrete entity. 
-Therefore, we have encoded the Schnorr group \cite{schnorr1991efficient} (multiplicative 
-group of integers modulo a large prime p), shown in Listing \ref{group_def}, and a prime field, shown in Listing \ref{field_def}, in the Rocq theorem prover. 
-To encode the Schnorr group, we postulate three integers $k$, $p$, and $q$. 
-We assume $p$ and $q$ are primes and $p = k q + 1$ (when 
-$k = 2$, $p$ is called a safe prime and $q$ is a Sophie Germain prime). Finally, we encode the neutral element (\texttt{one}), the group multiplication (\texttt{\seqsplit{mul\_schnorr\_group}}), 
-and the group inverse (\texttt{\seqsplit{inv\_schnorr\_group}}) and we prove that our encoding 
-of the Schnorr group in Rocq is a commutative group by making it 
-an instance of the typeclass \texttt{\seqsplit{schnorr\_comm}}, which is an abstract typeclass that bundles the axioms of a commutative group.
+\subsection{Efficient Modular Arithmetic}\label{eff_mod_arith}
+As stated earlier, to ensure the ease of proving and modularity, we worked with an (abstract) vector space. However, to execute the code of our formalisation, we need to instantiate the vector space with a concrete entity. We have therefore encoded the Schnorr group \cite{schnorr1991efficient} (the multiplicative group of integers modulo a large prime $p$) and a prime field in the Rocq theorem prover; the Rocq definitions are shown in Listings~\ref{group_def} and~\ref{field_def} in Appendix~\ref{appendix_listings}. To encode the Schnorr group, we postulate three integers $k$, $p$, and $q$, assume that $p$ and $q$ are primes with $p = k q + 1$, encode the neutral element, the group multiplication, and the group inverse, and prove that our encoding is a commutative group. To encode the prime field, we represent $\mathbb{Z}_p$ as a record containing an integer $v$ together with a proof that it lies in the range $[0 \ldots p)$, define all field operations, and prove that they satisfy the field axioms. Finally, we combine the Schnorr group and the prime field into a vector space (Listing~\ref{vec_space} in Appendix~\ref{appendix_listings}) by defining the scalar multiplication \texttt{pow}, which takes an element of the Schnorr group and an element of the prime field and returns an element of the Schnorr group. The reader can see that our encoding eliminates all possibilities of mixing group and field elements, both represented as integers modulo some large prime \cite{10.1007/978-3-662-63958-0_24}. The source code for this section can be accessed in the file \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Utility/Zpstar.v}{\textcolor{blue}{Zpstar.v}}.
+
+\subsection{Efficient Extractor}\label{eff_extractor}
+In this section, we explain the key ideas underlying the formalisation of an efficient extractor and simulator. Recall that for a $\Sigma$-protocol, the extractor is required to be efficient, i.e., it runs in time polynomial in the size of its input. However, functions defined over vector spaces do not capture computational complexity; in particular, they provide no information about the number of computational steps required to evaluate them on a given input. One possible approach in our formalisation would have been to adopt a monadic style~\cite{10.1145/3473585,10.1145/3158124}, where each function additionally returns the number of steps taken during its execution. This approach has the advantage of compositionality: given two monadic functions, their composition naturally yields the complexity of the combined computation. However, during code extraction, this additional bookkeeping would propagate through all functions, significantly complicating and effectively degrading the intended API. Instead, we adopt a more targeted approach. In practice, an extractor over a multiplicative group relies on the ability to efficiently compute inverses. In our concrete model, inverse is implemented via binary exponentiation using the function \texttt{\seqsplit{repeat\_op\_ntimes\_rec}}. We therefore introduce an inductive data type \texttt{\seqsplit{complexity\_repeat\_op\_ntimes\_rec}}, shown in Listing~\ref{extractor_complex} in Appendix~\ref{appendix_listings}, that captures the number of steps performed by this binary exponentiation procedure. Finally, we prove in theorem \texttt{\seqsplit{correct\_complexity\_repeat\_op\_ntimes\_rec}} that the function \texttt{\seqsplit{repeat\_op\_ntimes\_rec}} runs in logarithmic time in the value of its input, equivalently linear in the bit-length of the input. This approach allows us to preserve a clean API without introducing monadic overhead. While it lacks the compositional advantages of the monadic approach, it is sufficient for our purposes, as our primary objective is to extract executable (OCaml and WebAssembly) code whose APIs closely match those of real-world cryptographic libraries. The source code for this section can be access in the \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Utility/Functions.v}{\textcolor{blue}{Functions.v}} file.
 
 
- \begin{lstlisting}[frame=single, language=Coq, caption={Rocq Encoding of the Schnorr Group},
-  label={group_def},captionpos=t, basicstyle=\ttfamily\footnotesize,
-  abovecaptionskip=-\medskipamount]
-Section SchnorrGroup. 
-  Context {k p q : Z} {Hk : p = k * q + 1}
-    {Hp : prime p} {Hq : prime q}.
-
-  Record Schnorr_group := mk_schnorr {v : Z; Ha : 0 < v < p; 
-    Hb : v ^ q mod p = 1}.
-
-  (* u ^ (p - 2) is inverse of u *)
-  Definition inv_schnorr_group (u : Schnorr_group) : Schnorr_group.
-  refine(match u with 
-    | mk_schnorr au Hu Hv => mk_schnorr (* terms omitted *)
-    end).
-  Defined.
-
-  (* Schnorr is a commutative Group *)
-  Global Instance schnorr_comm : 
-    @commutative_group Schnorr_group (@eq Schnorr_group) 
-    mul_schnorr_group one inv_schnorr_group.
-End SchnorrGroup.
-\end{lstlisting}
 
 
-In order to encode a prime field, we postulate an integer $p$ and 
-axiom that $p$ is prime. We encode the prime field as 
-a record \texttt{Zp} that contains an integer $v$ with an axiom 
-that it is in the range $[0 \ldots p)$. Moreover, 
-we define all the operations of \texttt{Zp} and prove that 
-it is an instance of the typeclass \texttt{zp\_field}, which is 
-a typeclass that encodes the axioms of a field.
-
-\begin{lstlisting}[frame=single, language=Coq, caption={Rocq Encoding of Prime Field},
-  label={field_def},captionpos=t, basicstyle=\ttfamily\footnotesize,
-  abovecaptionskip=-\medskipamount]
-(* Prime Field *)
-Section ZpField.
-  Context {p : Z} {Hp : prime p}.
-
-  Record Zp := mk_zp {v : Z; Hv : Z.modulo v p = v}.
-
-  Global Instance zp_field : @field Zp zero 
-    one zp_opp zp_add zp_sub zp_mul zp_inv zp_div.
-End ZpField. 
-\end{lstlisting}
-
-Finally, we combine the Schnorr group and the prime field 
-into a vector space instantiating the vector set with 
-the Schnorr group and the scalar set with the prime field, 
-shown in Listing \ref{vec_space}. 
-However, in order to establish that it is an 
-instance of vector space we need the definition 
-of scalar multiplication. We encode the  
-the scalar multiplication \texttt{pow} of 
-vector space that takes an element from 
-a Schnorr group and an element from 
-the prime field and returns an element in the 
-Schnorr group.  The reader can see that our encoding eliminates all 
-possibilities of mixing group and field, both represented 
-as an integer modulo some large prime \cite{10.1007/978-3-662-63958-0_24}.
-The source code for this section can be accessed in the file \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Utility/Zpstar.v}{\textcolor{blue}{Zpstar.v}}.
-
-\begin{lstlisting}[frame=single, language=Coq, caption={Vector Space Instantiation},
-  label={vec_space},captionpos=t, basicstyle=\ttfamily\footnotesize,
-  abovecaptionskip=-\medskipamount]
-
-  Definition pow (g : @Schnorr.Schnorr_group p q) 
-  (y : @Zpfield.Zp q) : @Schnorr.Schnorr_group p q.
-  refine 
-    match g, y with 
-    | mk_schnorr gt Hgta Hgtb, mk_zp yt Hyt => 
-      mk_schnorr  (Npow_mod gt yt p) 
-      (pow_subproof_first _ _ Hgta Hyt)
-      (pow_subproof_second _ _ Hyt Hgta Hgtb)
-    end.
-  Defined.
-
-  Global Instance pow_vspace : 
-  @vector_space 
-    (* Field *)
-    (@Zpfield.Zp q) (@eq (@Zpfield.Zp q))
-    (@Zpfield.zero q Hq) (@Zpfield.one q Hq)
-    (@Zpfield.zp_add q) (@Zpfield.zp_mul q)
-    (@Zpfield.zp_sub q) (@Zpfield.zp_div q)
-    (@Zpfield.zp_opp q Hq) (@Zpfield.zp_inv q)
-    (* Vector *)
-    (Schnorr_group p q) (@eq (Schnorr_group p q))
-    (@one p q Hp Hq) 
-    (@inv_schnorr_group k p q Hk Hp Hq)
-    (@Schnorr.mul_schnorr_group p q Hp Hq)
-    pow.
-  
-\end{lstlisting}
-
-\subsection{Efficient Extractor}
-In this section, we explain the key ideas underlying the formalisation of an efficient extractor and simulator. Recall that for a $\Sigma$-protocol, the extractor is required to be efficient, i.e., it runs in time polynomial in the size of its input. However, functions defined over vector spaces do not capture computational complexity; in particular, they provide no information about the number of computational steps required to evaluate them on a given input. One possible approach in our formalisation would have been to adopt a monadic style~\cite{10.1145/3473585,10.1145/3158124}, where each function additionally returns the number of steps taken during its execution. This approach has the advantage of compositionality: given two monadic functions, their composition naturally yields the complexity of the combined computation. However, during code extraction, this additional bookkeeping would propagate through all functions, significantly complicating and effectively degrading the intended API. Instead, we adopt a more targeted approach. In practice, an extractor over a multiplicative group relies on the ability to efficiently compute inverses. In our concrete model, inverse is implemented via binary exponentiation using the function \texttt{\seqsplit{repeat\_op\_ntimes\_rec}}. We therefore introduce an inductive data type \texttt{\seqsplit{complexity\_repeat\_op\_ntimes\_rec}}, shown in Listing~\ref{extractor_complex}, that captures the number of steps performed by this binary exponentiation procedure. Finally, we prove in theorem \texttt{\seqsplit{correct\_complexity\_repeat\_op\_ntimes\_rec}} that the function \texttt{\seqsplit{repeat\_op\_ntimes\_rec}} runs in logarithmic time in the value of its input, equivalently linear in the bit-length of the input. This approach allows us to preserve a clean API without introducing monadic overhead. While it lacks the compositional advantages of the monadic approach, it is sufficient for our purposes, as our primary objective is to extract executable (OCaml and WebAssembly) code whose APIs closely match those of real-world cryptographic libraries. The source code for this section can be access in the \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Utility/Functions.v}{\textcolor{blue}{Functions.v}} file.
-
-
-\begin{lstlisting}[frame=single, language=Coq, caption={Extractor Complexity},
-  label={extractor_complex},captionpos=t, basicstyle=\ttfamily\footnotesize,
-  abovecaptionskip=-\medskipamount]
-Inductive complexity_repeat_op_ntimes_rec 
-(e t : N) : positive -> N -> N -> Prop :=
-| xH_case : complexity_repeat_op_ntimes_rec e t xH 
-    (N.modulo e t) N0
-| xO_case p ret w : 
-    complexity_repeat_op_ntimes_rec e t p ret w ->
-    complexity_repeat_op_ntimes_rec e t (xO p) 
-    (N.modulo (ret * ret) t) (N.succ w)
-| xI_case p ret w : 
-    complexity_repeat_op_ntimes_rec e t p ret w ->
-    complexity_repeat_op_ntimes_rec e t (xI p) 
-    (N.modulo (e * (ret * ret)) t) (N.succ w).
-
-Lemma correct_complexity_repeat_op_ntimes_rec : 
-  forall n e w, complexity_repeat_op_ntimes_rec e w n 
-    (repeat_op_ntimes_rec e n w)  (N.log2 n).
-Proof. (* proof terms omitted *) Qed.
-\end{lstlisting}
+Two aspects of this design are worth spelling out, because the interaction between cost accounting and code extraction is subtle. First, the relation \texttt{\seqsplit{complexity\_repeat\_op\_ntimes\_rec}} lives in \texttt{Prop}, and Rocq's extraction erases all propositional content: the cost analysis therefore leaves no footprint whatsoever in the extracted OCaml or WebAssembly code. The extracted binary exponentiation is exactly the function one would write by hand, while the logarithmic bound on its running time remains machine-checked inside Rocq. A monadic encoding, by contrast, would change the type of every instrumented function from $A \rightarrow B$ to $A \rightarrow B \times \mathbb{N}$, and this instrumentation would survive extraction, forcing every caller---including external OCaml and JavaScript code interacting with our library---to thread and discard step counts. Second, the approach generalises: any function on the extraction path can be paired, after the fact, with an inductive cost relation and a correctness theorem connecting the two, without modifying the function or its API. The price is that cost proofs are per-function rather than compositional; we consider this an acceptable trade-off because only a handful of operations (modular exponentiation and inversion) dominate the running time of both the extractor and the simulator, and these are precisely the operations we analyse.
 
 \section{Case Studies}\label{case_studies}
 
@@ -883,57 +724,13 @@ Approval voting is a voting method where each voter can approve any subset of ca
 Unlike plurality voting where each voter selects exactly one candidate, approval voting allows voters to express 
 support for multiple candidates, resulting in fairer representation of voter preferences. Our formalisation 
 implements approval voting using ElGamal encryptions paired with OR-compositions of $\Sigma$-proofs to guarantee that 
-each vote is either 0 (not approved) or 1 (approved).  The frontend functions, shown in Listing \ref{frontend_fun}, realise the ballot-construction pipeline for approval voting. The function \texttt{\seqsplit{encrypt\_vote}} computes the ElGamal ciphertext $(g^r,\; g^m \cdot h^r)$ from generator $g$, public key $h$, vote value $m$, and randomness $r$. The function \texttt{\seqsplit{generate\_enc\_proof}} then constructs a two-branch $\Sigma$-proof that the ciphertext encrypts either zero ($0$) or a non-zero value: it performs a case split with \texttt{Fdec} $m$ \texttt{zero}, places the real witness in the corresponding branch index (\texttt{Fin.F1} when $m=0$, otherwise \texttt{Fin.FS} \texttt{Fin.F1}), and simulates the other branch. Finally, \texttt{\seqsplit{encrypt\_vote\_and\_generate\_enc\_proof}} composes both steps and returns the ciphertext together with its proof as a single object for verification. Ideally, for the non-zero case a voter should encrypt $1$ but it runs on the voter's computer so the voter can encrypt any value and produce a zero-knowledge proof but the verification function running at the backend (server) will reject the proof, except for some negligible probability. More precisely, theorem \texttt{\seqsplit{vote\_proof\_invalid\_reject}} shows that for invalid votes $m \neq 0,1$, verification returns false under the usual non-degenerate assumptions. The companion theorem \texttt{\seqsplit{vote\_proof\_invalid\_accept}} captures the exceptional case: if the prover can predict the verifier challenge ($c_1 = c$), an invalid transcript can still be accepted. Together, these results characterise the standard $\Sigma$-protocol soundness boundary and explain why unpredictable challenges are essential \cite{10.1007/978-3-642-34961-4_38,dao2023weak}. 
+each vote is either 0 (not approved) or 1 (approved).  The frontend functions, shown in Listing~\ref{frontend_fun} in Appendix~\ref{appendix_listings}, realise the ballot-construction pipeline for approval voting. The function \texttt{\seqsplit{encrypt\_vote}} computes the ElGamal ciphertext $(g^r,\; g^m \cdot h^r)$ from generator $g$, public key $h$, vote value $m$, and randomness $r$. The function \texttt{\seqsplit{generate\_enc\_proof}} then constructs a two-branch $\Sigma$-proof that the ciphertext encrypts either zero ($0$) or a non-zero value: it performs a case split with \texttt{Fdec} $m$ \texttt{zero}, places the real witness in the corresponding branch index (\texttt{Fin.F1} when $m=0$, otherwise \texttt{Fin.FS} \texttt{Fin.F1}), and simulates the other branch. Finally, \texttt{\seqsplit{encrypt\_vote\_and\_generate\_enc\_proof}} composes both steps and returns the ciphertext together with its proof as a single object for verification. Ideally, for the non-zero case a voter should encrypt $1$ but it runs on the voter's computer so the voter can encrypt any value and produce a zero-knowledge proof but the verification function running at the backend (server) will reject the proof, except for some negligible probability. More precisely, theorem \texttt{\seqsplit{vote\_proof\_invalid\_reject}} shows that for invalid votes $m \neq 0,1$, verification returns false under the usual non-degenerate assumptions. The companion theorem \texttt{\seqsplit{vote\_proof\_invalid\_accept}} captures the exceptional case: if the prover can predict the verifier challenge ($c_1 = c$), an invalid transcript can still be accepted. Together, these results characterise the standard $\Sigma$-protocol soundness boundary and explain why unpredictable challenges are essential \cite{10.1007/978-3-642-34961-4_38,dao2023weak}. 
 
 Finally, the function \texttt{\seqsplit{encrypt\_ballot\_and\_generate\_enc\_proof}} extends vote encryption to the entire ballot by vectorizing across all $n$ candidates. Each candidate 
 produces a tuple $(C_i, \pi_i)$ where $C_i$ is the encrypted vote and $\pi_i$ is the accompanying $\Sigma$-proof. A complete ballot is thus a vector of $n$ such tuples. We extract all frontend functions into WebAssembly. The related Rocq proofs can be accessed from the \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Frontend/Approval.v}{\textcolor{blue}{Approval.v}} file and the corresponding WebAssembly file from \href{https://anonymous.4open.science/r/SigmaProtocol-EBA5/src/Wasm/approval.wasm}{\textcolor{blue}{approval.wasm}}.
 
 
-\begin{lstlisting}[frame=single, language=Coq, caption={Frontend Functions},
-  label={frontend_fun},captionpos=t, basicstyle=\ttfamily\footnotesize,
-  abovecaptionskip=-\medskipamount]
-(* encrypt vote *)
-Definition encrypt_vote (g h : G) (r : F) (m : F) : G * G :=
-  @enc F G gop gpow g h m r.
 
-(* create a proof *)
-Definition generate_enc_proof 
-  (g h : G) (r : F)  (m : F) (uscs : Vector.t F 3) (cp : G * G) 
-  (c : F) : @Sigma.sigma_proto F (G * G) 2 3 2 :=
-    match Fdec m zero with 
-    | left _ => 
-      @generalised_construct_encryption_proof_elgamal_real F zero 
-        add mul sub opp G ginv gop gpow 0 Fin.F1 r uscs 
-        [g^m; g^one] g h cp c (* real one goes to 
-        the first place Fin.F1 *)
-    | right _ =>  
-      @generalised_construct_encryption_proof_elgamal_real F zero 
-        add mul sub opp G ginv gop gpow 0 (Fin.FS Fin.F1) r uscs 
-        [g^zero; g^m] g h cp c (* real one 
-        goes to the second place (Fin.FS Fin.F1) *)
-    end.
-
-Definition encrypt_vote_and_generate_enc_proof 
-  (g h : G) (r : F)  (m : F) (uscs : Vector.t F 3) (c : F) : 
-  G * G * @Sigma.sigma_proto F (G * G) 2 3 2 := 
-  let cp := @enc F G gop gpow g h m r in
-  let sig_proof := generate_enc_proof g h r m uscs cp c
-  in (cp, sig_proof).
-
-Theorem vote_proof_invalid_reject : 
- forall (r : F) (g h : G) (m : F)  (u1 u2 c1 : F) (c : F),
- g <> gid -> (m <> zero /\ m <> one) -> c1 <> c ->
- verify_encryption_vote_proof g h 
- (encrypt_vote_and_generate_enc_proof g h r m [u1; u2; c1] c) = false
-Proof. (* proof terms omitted. *) Qed. 
-
-Theorem vote_proof_invalid_accept :
- forall (r : F) (g h : G) (m : F)  (u1 u2 c1 : F) (c : F),
- (m <> zero /\ m <> one) -> c1 = c ->
- verify_encryption_vote_proof g h 
- (encrypt_vote_and_generate_enc_proof g h r m [u1; u2; c1] c) = true.
-Proof. (* proof terms omitted. *) Qed.
-\end{lstlisting}
 
 
 \textbf{Homomorphic Tallying}: Tallying is specified as an inductive state machine \texttt{count}, parameterised 
@@ -1044,10 +841,55 @@ for $p$, the proof can be accessed from \href{https://anonymous.4open.science/r/
   
 
 
+\subsection{Performance Evaluation}\label{perf_eval}
+%% TODO(authors): fill in the [TBD] placeholders below with actual
+%% measurements before submission, and adjust the hardware/browser
+%% description to match the machines used.
+To assess whether the extracted code is practical, we measure both ends of the pipeline: the WebAssembly voting client in the browser and the OCaml Helios verifier on real election data. All measurements were taken on [TBD: hardware, OS, browser version, OCaml version]; we report the median of [TBD] runs.
+
+\begin{table}
+  \caption{Performance of the extracted code. Client-side numbers are for a single ballot with $n$ candidates in the browser; verifier numbers are for complete IACR election data sets.}
+  \label{tab:perf}
+  \small
+  \begin{tabular}{@{}llr@{}}
+    \toprule
+    Operation & Input & Time\\
+    \midrule
+    Ballot encryption + proofs (Wasm) & $n = 7$ candidates & [TBD]\\
+    Ballot encryption + proofs (Helios JS) & $n = 7$ candidates & [TBD]\\
+    Ballot verification (OCaml) & single ballot & [TBD]\\
+    Helios verifier, IACR 2023 (OCaml) & [TBD] ballots & [TBD]\\
+    Helios verifier, IACR 2024 (OCaml) & [TBD] ballots & [TBD]\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:perf} summarises the results. For the voting client, the relevant metric is not raw throughput but perceived latency: a voter encrypts a single ballot, so encryption and proof generation must complete within interactive time bounds on commodity hardware. We compare against the hand-written JavaScript of the Helios voting booth on identical parameters. For the verifier, the relevant metric is the end-to-end wall-clock time to validate an entire election, which is an offline batch task run by scrutineers. Our arithmetic is performed on Rocq's arbitrary-precision integers rather than a specialised cryptographic library, so we do not expect to match the throughput of hand-optimised implementations such as HACL$^{*}$~\cite{10.1145/3133956.3134043}; the measurements show that the certified code is nonetheless [TBD: e.g., ``well within interactive latency budgets for ballot preparation, and verifies a complete IACR election in under a minute''].
+
 \section{Related Work, Limitations, and Future Work}\label{rel_work}
 Given the widespread use of $\Sigma$-protocols in electronic voting and related domains, their extensive formalisation in prior work is unsurprising~\cite{5552642,9519460,butler2021formalising,10.1145/3319535.3354247,287095,almeida2010certifying,10221929,10.1145/3594735}.  Barthe et al.~\cite{5552642} present the first formalisation of $\Sigma$-protocols and their composition in CertiCrypt, a library developed in the Rocq theorem prover. While their proofs are constructive, they do not support extraction of executable OCaml code. Butler et al.~\cite{butler2021formalising} formalise $\Sigma$-protocols in CryptoHOL~\cite{10.1007/978-3-662-49498-1_20}, built on Isabelle/HOL. As in~\cite{5552642}, the focus is on machine-checked correctness rather than code extraction. Moreover, the use of classical reasoning, e.g., the law of excluded middle in Isabelle/HOL may preclude extraction of executable code. Haines et al.~\cite{287095} formalise $\Sigma$-protocols in Rocq and extract OCaml code to verify the 2020 IACR election. This work is the closest to ours; however, it focuses solely on the verification of IACR elections, whereas our approach targets the correct-by-construction development of primitives for electronic voting and other privacy-preserving applications based on $\Sigma$-protocols. Their framework also lacks a natural probabilistic reasoning approach to zero-knowledge. Firsov et al.~\cite{10221929} formalise $\Sigma$-protocols in EasyCrypt (the successor to CertiCrypt), focusing on machine-checked proofs rather than executable extraction. 
 
   
+Table~\ref{tab:comparison} positions our development relative to these prior formalisations. In terms of expressiveness, our library covers a broader collection of protocols, and all compositions are $n$-ary, instantiable at any arity at compile time. In terms of assurance for the executable code, prior developments either stop at machine-checked proofs or rely on Rocq's unverified extraction to OCaml; ours additionally offers a WebAssembly path through a verified compiler, and it is the only one targeting both the client and the server side of an application from a single set of proofs.
+
+\begin{table}
+  \caption{Comparison with prior machine-checked formalisations of $\Sigma$-protocols.}
+  \label{tab:comparison}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    Work & Prover & Extraction & Verified comp. & Real data\\
+    \midrule
+    Barthe et al.~\cite{5552642} & Rocq & -- & -- & --\\
+    Butler et al.~\cite{butler2021formalising} & Isabelle/HOL & -- & -- & --\\
+    Haines et al.~\cite{287095} & Rocq & OCaml & -- & IACR '20\\
+    Firsov et al.~\cite{10221929} & EasyCrypt & -- & -- & --\\
+    This work & Rocq & OCaml, Wasm & Wasm & IACR '23/'24\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \subsection{Limitation and Future Work}
 Our formalisation lacks mix-net~\cite{10.1145/358549.358563}, a key primitive in electronic voting that breaks the link between voters and their ballots by taking encrypted ballots and outputting them in a randomised order. Since outputs remain encrypted, a malicious mix-net could replace genuine ballots with forged ones, so it must provide a zero-knowledge proof of correct shuffling~\cite{10.1007/978-3-642-02620-1_28,10.1007/978-3-642-29011-4_17}. Mix-net is also used to verify ballot validity in the Schulze voting method \cite{haines2019verifiable}. Another possibility is to formalise Bulletproofs \cite{bunz2018bulletproofs}; this would allow us to provide compact range proofs for ballot validity (e.g., proving that a vote is $0$ or $1$), and could also be adapted to construct verifiable shuffles with logarithmic proof size (we have encoded the inner-product protocol but have not yet proved any security properties about our encoding). Another promising direction is a domain-specific language (DSL) for $\Sigma$-protocols embedded in Rocq. The \texttt{\seqsplit{sigma-compiler}}~\cite{sigma-compiler,cryptoeprint:2026/794} macro for Rust allows a protocol designer to write a high-level, declarative specification---lists of public parameters, secret witnesses, and logical statements---and automatically synthesises the corresponding prover and verifier functions. While this eliminates many manual implementation errors, the generated code itself is not formally verified. By embedding a similar DSL within Rocq, one could obtain a correct-by-construction pipeline: the same specification that is used to generate executable OCaml or Rust code could also serve as the input to a formalisation that proves, inside Rocq, that the resulting proof satisfies completeness, special soundness, and honest-verifier zero-knowledge. Given our current infrastructure, it would be fairly straightforward to  encode these algorithms and prove their security properties. 
    
@@ -1065,11 +907,32 @@ Our formalisation lacks mix-net~\cite{10.1145/358549.358563}, a key primitive in
    reason about the security properties  of 
    the transform. There is an existing 
    work about formalising random oracles in the Rocq theorem 
-   prover \cite{10.1007/11617990_3} and we would like to 
-   connect it to our implementation; however, it 
+   prover \cite{10.1007/11617990_3} and we would like to
+   connect it to our implementation; however, it
    will require some non-trivial work.
- 
 
+   A natural question is whether our representation of probability
+   distributions would scale to such a development. For the protocols in this
+   paper, all distributions are finite and the zero-knowledge property is
+   information-theoretic: the real and simulated transcript distributions
+   coincide exactly, which is why representing a distribution as a list of
+   outcome--probability pairs is both simple and sufficient. Reasoning in the
+   random oracle model, by contrast, requires computational
+   notions---negligible functions, adversary advantage, and
+   indistinguishability---that our framework deliberately does not capture.
+   We see two viable paths: extending our distribution monad with an
+   approximate equivalence indexed by a security parameter, or interfacing
+   with an existing framework for computational reasoning in Rocq, such as
+   SSProve~\cite{10.1145/3594735}, while retaining our library as the source
+   of extractable computational content. Importantly, the Fiat-Shamir
+   transform changes only how challenges are produced, not the relation
+   between transcripts: our certified provers and verifiers already take the
+   challenge as an explicit input, so a non-interactive wrapper can reuse the
+   extracted code unchanged, and only the security argument---not the
+   code---requires the random oracle model.
+
+
+\section{Conclusion}
    In this paper, we have presented a certified implementation of a comprehensive library of $\Sigma$-protocols in the Rocq theorem prover, providing machine-checked proofs of completeness, special soundness, and special honest-verifier zero-knowledge for each construction. Our generic formalisation over abstract vector spaces captures a wide class of discrete-logarithm-based protocols while remaining independent of concrete cryptographic groups. Unlike prior work, our approach supports simultaneous extraction to OCaml and WebAssembly, eliminating code duplication between frontend and backend without sacrificing correctness. We have demonstrated the practical utility of our library by implementing a Helios election verifier (validating real IACR 2023/2024 elections) and a full client-server system for Approval Voting. The voting community can readily adopt our certified primitives to build end-to-end verifiable systems with strong, machine-checked security guarantees.
 
 
@@ -1125,6 +988,200 @@ output of all AI-based tools.
 % and the bibliography file.
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{reference}
+
+\section{Rocq Listings}\label{appendix_listings}
+This appendix collects, in order of appearance, the Rocq listings referenced from the main body of the paper.
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Or-$\Sigma$-Protocol},
+label={or_proof},captionpos=t, basicstyle=\ttfamily\footnotesize,
+abovecaptionskip=-\medskipamount]
+Definition generalised_construct_or_conversations_schnorr {n : nat} 
+ (rindex : Fin.t (2 + n)) (x : F) (gs hs : Vector.t G (2 + n))
+ (uscs : Vector.t F ((2 + n) + (1 + n))) (c : F) : 
+ @sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n).
+Proof. (* proof terms omitted. *) Defined.
+
+Definition generalised_construct_or_conversations_simulator {n : nat} 
+ (gs hs : Vector.t G (2 + n)) (uscs : Vector.t F ((2 + n) + (1 + n)))  
+ (c : F) :  @sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n).
+Proof. (* proof terms omitted. *) Defined.
+
+(* schnorr OR distribution *)
+Definition generalised_or_schnorr_distribution  {n : nat} 
+ (lf : list F) (Hlfn : lf <> List.nil) (rindex : Fin.t (2 + n)) 
+ (x : F) (gs hs : Vector.t G (2 + n)) (c : F) : 
+ dist (@sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n)) := 
+ uscs <- repeat_dist_ntimes_vector 
+  (uniform_with_replacement lf Hlfn) ((2 + n) + (1 + n)) ;;
+ Ret (generalised_construct_or_conversations_schnorr 
+  rindex x gs hs uscs c).
+
+(* simulator distribution *)
+Definition generalised_or_simulator_distribution {n : nat} 
+ (lf : list F) (Hlfn : lf <> List.nil) 
+ (gs hs : Vector.t G (2 + n)) (c : F) : 
+ dist (@sigma_proto F G (2 + n) (1 + (2 + n)) (2 + n)) :=
+ (* draw ((m + (1 + n)) + (m + n)) random elements *)
+ usrs <- repeat_dist_ntimes_vector 
+  (uniform_with_replacement lf Hlfn) ((2 + n) + (1 + n)) ;;
+ Ret (generalised_construct_or_conversations_simulator 
+  gs hs usrs c).
+
+(* Information theoretic proofs *)
+Lemma generalised_or_special_honest_verifier_zkp {n : nat}
+ (x : F) (* secret witness *)
+ (gs hs : Vector.t G (2 + n)) (rindex : Fin.t (2 + n))
+ (* Prover knows rindex relation *) 
+ (R : Vector.nth hs rindex = Vector.nth gs rindex ^ x) : 
+ forall (lf : list F) (Hlfn : lf <> List.nil) (c : F),
+ List.map (fun '(a, p) => 
+  (generalised_or_accepting_conversations gs hs a, p))
+  (generalised_or_schnorr_distribution lf Hlfn rindex x gs hs c) = 
+ List.map (fun '(a, p) => 
+ (generalised_or_accepting_conversations gs hs a, p))
+ (generalised_or_simulator_distribution lf Hlfn gs hs c).
+Proof. (* terms omitted *) Qed.
+
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Rocq Encoding of the Schnorr Group},
+  label={group_def},captionpos=t, basicstyle=\ttfamily\footnotesize,
+  abovecaptionskip=-\medskipamount]
+Section SchnorrGroup. 
+  Context {k p q : Z} {Hk : p = k * q + 1}
+    {Hp : prime p} {Hq : prime q}.
+
+  Record Schnorr_group := mk_schnorr {v : Z; Ha : 0 < v < p; 
+    Hb : v ^ q mod p = 1}.
+
+  (* u ^ (p - 2) is inverse of u *)
+  Definition inv_schnorr_group (u : Schnorr_group) : Schnorr_group.
+  refine(match u with 
+    | mk_schnorr au Hu Hv => mk_schnorr (* terms omitted *)
+    end).
+  Defined.
+
+  (* Schnorr is a commutative Group *)
+  Global Instance schnorr_comm : 
+    @commutative_group Schnorr_group (@eq Schnorr_group) 
+    mul_schnorr_group one inv_schnorr_group.
+End SchnorrGroup.
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Rocq Encoding of Prime Field},
+  label={field_def},captionpos=t, basicstyle=\ttfamily\footnotesize,
+  abovecaptionskip=-\medskipamount]
+(* Prime Field *)
+Section ZpField.
+  Context {p : Z} {Hp : prime p}.
+
+  Record Zp := mk_zp {v : Z; Hv : Z.modulo v p = v}.
+
+  Global Instance zp_field : @field Zp zero 
+    one zp_opp zp_add zp_sub zp_mul zp_inv zp_div.
+End ZpField. 
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Vector Space Instantiation},
+  label={vec_space},captionpos=t, basicstyle=\ttfamily\footnotesize,
+  abovecaptionskip=-\medskipamount]
+
+  Definition pow (g : @Schnorr.Schnorr_group p q) 
+  (y : @Zpfield.Zp q) : @Schnorr.Schnorr_group p q.
+  refine 
+    match g, y with 
+    | mk_schnorr gt Hgta Hgtb, mk_zp yt Hyt => 
+      mk_schnorr  (Npow_mod gt yt p) 
+      (pow_subproof_first _ _ Hgta Hyt)
+      (pow_subproof_second _ _ Hyt Hgta Hgtb)
+    end.
+  Defined.
+
+  Global Instance pow_vspace : 
+  @vector_space 
+    (* Field *)
+    (@Zpfield.Zp q) (@eq (@Zpfield.Zp q))
+    (@Zpfield.zero q Hq) (@Zpfield.one q Hq)
+    (@Zpfield.zp_add q) (@Zpfield.zp_mul q)
+    (@Zpfield.zp_sub q) (@Zpfield.zp_div q)
+    (@Zpfield.zp_opp q Hq) (@Zpfield.zp_inv q)
+    (* Vector *)
+    (Schnorr_group p q) (@eq (Schnorr_group p q))
+    (@one p q Hp Hq) 
+    (@inv_schnorr_group k p q Hk Hp Hq)
+    (@Schnorr.mul_schnorr_group p q Hp Hq)
+    pow.
+  
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Extractor Complexity},
+  label={extractor_complex},captionpos=t, basicstyle=\ttfamily\footnotesize,
+  abovecaptionskip=-\medskipamount]
+Inductive complexity_repeat_op_ntimes_rec 
+(e t : N) : positive -> N -> N -> Prop :=
+| xH_case : complexity_repeat_op_ntimes_rec e t xH 
+    (N.modulo e t) N0
+| xO_case p ret w : 
+    complexity_repeat_op_ntimes_rec e t p ret w ->
+    complexity_repeat_op_ntimes_rec e t (xO p) 
+    (N.modulo (ret * ret) t) (N.succ w)
+| xI_case p ret w : 
+    complexity_repeat_op_ntimes_rec e t p ret w ->
+    complexity_repeat_op_ntimes_rec e t (xI p) 
+    (N.modulo (e * (ret * ret)) t) (N.succ w).
+
+Lemma correct_complexity_repeat_op_ntimes_rec : 
+  forall n e w, complexity_repeat_op_ntimes_rec e w n 
+    (repeat_op_ntimes_rec e n w)  (N.log2 n).
+Proof. (* proof terms omitted *) Qed.
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Frontend Functions},
+  label={frontend_fun},captionpos=t, basicstyle=\ttfamily\footnotesize,
+  abovecaptionskip=-\medskipamount]
+(* encrypt vote *)
+Definition encrypt_vote (g h : G) (r : F) (m : F) : G * G :=
+  @enc F G gop gpow g h m r.
+
+(* create a proof *)
+Definition generate_enc_proof 
+  (g h : G) (r : F)  (m : F) (uscs : Vector.t F 3) (cp : G * G) 
+  (c : F) : @Sigma.sigma_proto F (G * G) 2 3 2 :=
+    match Fdec m zero with 
+    | left _ => 
+      @generalised_construct_encryption_proof_elgamal_real F zero 
+        add mul sub opp G ginv gop gpow 0 Fin.F1 r uscs 
+        [g^m; g^one] g h cp c (* real one goes to 
+        the first place Fin.F1 *)
+    | right _ =>  
+      @generalised_construct_encryption_proof_elgamal_real F zero 
+        add mul sub opp G ginv gop gpow 0 (Fin.FS Fin.F1) r uscs 
+        [g^zero; g^m] g h cp c (* real one 
+        goes to the second place (Fin.FS Fin.F1) *)
+    end.
+
+Definition encrypt_vote_and_generate_enc_proof 
+  (g h : G) (r : F)  (m : F) (uscs : Vector.t F 3) (c : F) : 
+  G * G * @Sigma.sigma_proto F (G * G) 2 3 2 := 
+  let cp := @enc F G gop gpow g h m r in
+  let sig_proof := generate_enc_proof g h r m uscs cp c
+  in (cp, sig_proof).
+
+Theorem vote_proof_invalid_reject : 
+ forall (r : F) (g h : G) (m : F)  (u1 u2 c1 : F) (c : F),
+ g <> gid -> (m <> zero /\ m <> one) -> c1 <> c ->
+ verify_encryption_vote_proof g h 
+ (encrypt_vote_and_generate_enc_proof g h r m [u1; u2; c1] c) = false
+Proof. (* proof terms omitted. *) Qed. 
+
+Theorem vote_proof_invalid_accept :
+ forall (r : F) (g h : G) (m : F)  (u1 u2 c1 : F) (c : F),
+ (m <> zero /\ m <> one) -> c1 = c ->
+ verify_encryption_vote_proof g h 
+ (encrypt_vote_and_generate_enc_proof g h r m [u1; u2; c1] c) = true.
+Proof. (* proof terms omitted. *) Qed.
+\end{lstlisting}
+
 
 \end{document}
 \endinput
