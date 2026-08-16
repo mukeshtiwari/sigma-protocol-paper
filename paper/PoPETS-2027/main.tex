@@ -637,36 +637,13 @@ simulator distribution (without witnesses). The simulator splits randomness betw
 components: for And, it uses the standard simulator producing commitments $t_i = g^{u_i} \cdot h_i^{-c}$; 
 for each Okamoto pair, it generates simulated commitments independently. Both distributions produce 
 accepting transcripts with probability $1/|\mathbb{F}|^{(2+n) + (2+n)(1+n)} = 1/|\mathbb{F}|^{(2+n)^2}$, proven 
-using our uniform probability distribution framework; and (iii) \textbf{special soundness:} from two accepting transcripts sharing identical commitments but responding to distinct challenges \(c_1 \neq c_2\), an extractor is able to reconstruct witnesses \(x_1, \ldots, x_{2+n}\) satisfying the underlying discrete logarithm relations.  However, establishing that these extracted witnesses are genuinely distinct is far more subtle, and cannot, in general, be achieved without additional structural assumptions on the generators. In classical treatments, this is covered by an independence assumption; in our development, we instead expose the underlying algebraic relation explicitly. As formalised in Listing~\ref{neq_special_sound}, we obtain an unconditional dichotomy: either the extracted witnesses are pairwise distinct, or the generator structure itself is degenerate in a precise sense, namely that there exists a non-trivial discrete logarithm relation between generators, i.e., \(g_j = g_i^\alpha\) for some \(\alpha\) that is efficiently computable, or one of the generators collapses to the identity.  In this way, special soundness is derived without postulating independence as an axiom. Instead, we exploit decidability of the relevant algebraic predicates to transform what is typically an implicit assumption into an explicit disjunction:
+using our uniform probability distribution framework; and (iii) \textbf{special soundness:} from two accepting transcripts sharing identical commitments but responding to distinct challenges \(c_1 \neq c_2\), an extractor is able to reconstruct witnesses \(x_1, \ldots, x_{2+n}\) satisfying the underlying discrete logarithm relations.  However, establishing that these extracted witnesses are genuinely distinct is far more subtle, and cannot, in general, be achieved without additional structural assumptions on the generators. In classical treatments, this is covered by an independence assumption; in our development, we instead expose the underlying algebraic relation explicitly. As formalised in Listing~\ref{neq_special_sound} in Appendix~\ref{appendix_listings}, we obtain an unconditional dichotomy: either the extracted witnesses are pairwise distinct, or the generator structure itself is degenerate in a precise sense, namely that there exists a non-trivial discrete logarithm relation between generators, i.e., \(g_j = g_i^\alpha\) for some \(\alpha\) that is efficiently computable, or one of the generators collapses to the identity.  In this way, special soundness is derived without postulating independence as an axiom. Instead, we exploit decidability of the relevant algebraic predicates to transform what is typically an implicit assumption into an explicit disjunction:
 the protocol is sound either because witnesses separate cleanly, or because the algebraic structure itself reveals an underlying dependency. We would like to emphasise the importance of Rocq in this development. For the special soundness proof, our initial expectation was simply to extract the witness vector from two accepting transcripts sharing identical commitments. However, during the proof, Rocq exposed additional structural requirements that were not apparent at the informal level, forcing us to confront hidden dependencies and edge cases that would otherwise have been silently assumed away.
 
 
 The implementation \texttt{\seqsplit{generalised\_construct\_neq\_conversations\_real\_transcript}} requires randomness of dimension \((2+n) + (2+n)(1+n) = (2+n)^2\) and produces proof transcripts of size \(O(n^2)\), reflecting the inherently quadratic nature of enforcing pairwise inequality constraints. Consequently, while theoretically sound and fully general, this construction is not particularly practical for large-scale instances, as both the randomness requirements and transcript size grow rapidly with \(n\).
 
-\begin{lstlisting}[frame=single, language=Coq, caption={Neq $\Sigma$ Protocol},
-label={neq_special_sound},captionpos=t, basicstyle=\ttfamily\footnotesize,
-abovecaptionskip=-\medskipamount]
-(* size of proofs is O(n^2) for NEQ if we have n statements. *) 
-Definition generalised_construct_neq_conversations_real_transcript 
- {n : nat} : Vector.t F (2 + n) -> Vector.t G (2 + n) -> 
- Vector.t G (2 + n) -> Vector.t F ((2 + n) + ((2 + n) * (1 + n))) 
- -> F -> @sigma_proto F G ((2 + n) + Nat.div ((2 + n) * (1 + n)) 2) 
-  1 ((2 + n) + (2 + n) * (1 + n)).
-Proof. intros xs gs hs us c. (* terms omitted *) Defined. 
 
-Theorem generalised_neq_accepting_conversations_soundness :
-  forall (n : nat) (a : Vector.t G (2 + n + (2 + n) * (1 + n) / 2)) 
-  (c1 c2 : F) (rs1 rs2 : Vector.t F (2 + n + (2 + n) * (1 + n))) 
-  (gs hs : Vector.t G (2 + n)), [c1] <> [c2] ->
-  neq_accepting_conversations gs hs (a; [c1]; rs1) = true ->
-  neq_accepting_conversations gs hs (a; [c2]; rs2) = true ->
-  exists (xs : Vector.t F (2 + n)), 
-  (forall (i : Fin.t (2 + n)), hs[@i] = gs[@i] ^ xs[@i]) /\
-  ((forall (i j : Fin.t (2 + n)), i <> j -> xs[@i] <> xs[@j]) \/
-  (exists (i j : Fin.t (2 + n)), i <> j /\ 
-  ((exists (alpha : F), gs[@j] = gs[@i] ^ alpha) \/ 
-  gs[@i] = gid \/ gs[@j] = gid)))
-\end{lstlisting}
 
 \subsection{Linear Relations}
 A further type of subprotocol that we have formalised involves a simple linear relation between committed secret values.
@@ -842,29 +819,31 @@ for $p$, the proof can be accessed from \href{https://anonymous.4open.science/r/
 
 
 \subsection{Performance Evaluation}\label{perf_eval}
-%% TODO(authors): fill in the [TBD] placeholders below with actual
-%% measurements before submission, and adjust the hardware/browser
-%% description to match the machines used.
-To assess whether the extracted code is practical, we measure both ends of the pipeline: the WebAssembly voting client in the browser and the OCaml Helios verifier on real election data. All measurements were taken on [TBD: hardware, OS, browser version, OCaml version]; we report the median of [TBD] runs.
+To assess whether the extracted code is practical, we measure both ends of the pipeline: ballot construction by the voting client and the Helios verifier on real election data. All measurements were taken on an Apple M3 Pro laptop (12 cores, 36\,GB RAM). The certified code is extracted to OCaml~5.4.1 and performs arbitrary-precision arithmetic through \texttt{zarith} (backed by GMP); the JavaScript baseline runs the exact cryptographic scripts served by the deployed Helios voting booth (\texttt{jsbn} big-integer arithmetic) under Node.js~26, on the same machine, with the same 2048-bit election parameters. Client-side numbers are medians of 30 runs; full-election verification numbers are medians of 3 runs.
 
 \begin{table}
-  \caption{Performance of the extracted code. Client-side numbers are for a single ballot with $n$ candidates in the browser; verifier numbers are for complete IACR election data sets.}
+  \caption{Performance of the certified code at the Helios parameters (2048-bit $p$, 256-bit $q$). Client-side numbers are for a single approval ballot with $n = 7$ candidates; verifier numbers are for complete IACR election data sets.}
   \label{tab:perf}
   \small
   \begin{tabular}{@{}llr@{}}
     \toprule
     Operation & Input & Time\\
     \midrule
-    Ballot encryption + proofs (Wasm) & $n = 7$ candidates & [TBD]\\
-    Ballot encryption + proofs (Helios JS) & $n = 7$ candidates & [TBD]\\
-    Ballot verification (OCaml) & single ballot & [TBD]\\
-    Helios verifier, IACR 2023 (OCaml) & [TBD] ballots & [TBD]\\
-    Helios verifier, IACR 2024 (OCaml) & [TBD] ballots & [TBD]\\
+    Ballot encryption + proofs (certified OCaml) & $n = 7$ & 62\,ms\\
+    Ballot encryption + proofs (Helios booth JS) & $n = 7$ & 334\,ms\\
+    Ballot verification (certified OCaml) & $n = 7$ & 49\,ms\\
+    Ballot verification (Helios booth JS) & $n = 7$ & 385\,ms\\
+    Helios verifier, IACR 2023 (certified OCaml) & 848 ballots & 39.2\,s\\
+    Helios verifier, IACR 2024 (certified OCaml) & 932 ballots & 50.8\,s\\
+    %% TODO(authors): once approval.wasm is regenerated from
+    %% HeliosFrontendIns.v (2048-bit parameters) via CertiCoq-Wasm,
+    %% add the browser-side row:
+    %% Voting client (WebAssembly, browser) & $n = 7$ & [TBD]\\
     \bottomrule
   \end{tabular}
 \end{table}
 
-Table~\ref{tab:perf} summarises the results. For the voting client, the relevant metric is not raw throughput but perceived latency: a voter encrypts a single ballot, so encryption and proof generation must complete within interactive time bounds on commodity hardware. We compare against the hand-written JavaScript of the Helios voting booth on identical parameters. For the verifier, the relevant metric is the end-to-end wall-clock time to validate an entire election, which is an offline batch task run by scrutineers. Our arithmetic is performed on Rocq's arbitrary-precision integers rather than a specialised cryptographic library, so we do not expect to match the throughput of hand-optimised implementations such as HACL$^{*}$~\cite{10.1145/3133956.3134043}; the measurements show that the certified code is nonetheless [TBD: e.g., ``well within interactive latency budgets for ballot preparation, and verifies a complete IACR election in under a minute''].
+Table~\ref{tab:perf} summarises the results. For the voting client, the relevant metric is not raw throughput but perceived latency: a voter encrypts a single ballot, so encryption and proof generation must complete within interactive time bounds on commodity hardware. Encrypting a seven-candidate approval ballot and generating all seven disjunctive encryption proofs takes 62\,ms with our certified code---more than five times faster than the hand-written JavaScript shipped with the deployed Helios voting booth (334\,ms) on identical parameters. Certified code is therefore not synonymous with slow code: although our only optimisation is an efficient integer representation, the extracted OCaml outperforms a widely deployed hand-written implementation while carrying machine-checked correctness guarantees. We do not expect to match hand-optimised cryptographic libraries such as HACL$^{*}$~\cite{10.1145/3133956.3134043}, which occupy a different point in the assurance--performance space. For the verifier, the relevant metric is the end-to-end wall-clock time to validate an entire election, an offline batch task run by scrutineers: our certified verifier checks the complete IACR 2023 election (848 ballots, six candidates) in 39 seconds and the IACR 2024 election (932 ballots, seven candidates) in 51 seconds, including parsing the 21--26\,MB bulletin-board data, verifying every ballot's encryption proofs, homomorphically aggregating the valid ballots, and checking the trustees' decryption proofs and proofs of knowledge.
 
 \section{Related Work, Limitations, and Future Work}\label{rel_work}
 Given the widespread use of $\Sigma$-protocols in electronic voting and related domains, their extensive formalisation in prior work is unsurprising~\cite{5552642,9519460,butler2021formalising,10.1145/3319535.3354247,287095,almeida2010certifying,10221929,10.1145/3594735}.  Barthe et al.~\cite{5552642} present the first formalisation of $\Sigma$-protocols and their composition in CertiCrypt, a library developed in the Rocq theorem prover. While their proofs are constructive, they do not support extraction of executable OCaml code. Butler et al.~\cite{butler2021formalising} formalise $\Sigma$-protocols in CryptoHOL~\cite{10.1007/978-3-662-49498-1_20}, built on Isabelle/HOL. As in~\cite{5552642}, the focus is on machine-checked correctness rather than code extraction. Moreover, the use of classical reasoning, e.g., the law of excluded middle in Isabelle/HOL may preclude extraction of executable code. Haines et al.~\cite{287095} formalise $\Sigma$-protocols in Rocq and extract OCaml code to verify the 2020 IACR election. This work is the closest to ours; however, it focuses solely on the verification of IACR elections, whereas our approach targets the correct-by-construction development of primitives for electronic voting and other privacy-preserving applications based on $\Sigma$-protocols. Their framework also lacks a natural probabilistic reasoning approach to zero-knowledge. Firsov et al.~\cite{10221929} formalise $\Sigma$-protocols in EasyCrypt (the successor to CertiCrypt), focusing on machine-checked proofs rather than executable extraction. 
@@ -1042,6 +1021,31 @@ Lemma generalised_or_special_honest_verifier_zkp {n : nat}
  (generalised_or_simulator_distribution lf Hlfn gs hs c).
 Proof. (* terms omitted *) Qed.
 
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, language=Coq, caption={Neq $\Sigma$ Protocol},
+label={neq_special_sound},captionpos=t, basicstyle=\ttfamily\footnotesize,
+abovecaptionskip=-\medskipamount]
+(* size of proofs is O(n^2) for NEQ if we have n statements. *) 
+Definition generalised_construct_neq_conversations_real_transcript 
+ {n : nat} : Vector.t F (2 + n) -> Vector.t G (2 + n) -> 
+ Vector.t G (2 + n) -> Vector.t F ((2 + n) + ((2 + n) * (1 + n))) 
+ -> F -> @sigma_proto F G ((2 + n) + Nat.div ((2 + n) * (1 + n)) 2) 
+  1 ((2 + n) + (2 + n) * (1 + n)).
+Proof. intros xs gs hs us c. (* terms omitted *) Defined. 
+
+Theorem generalised_neq_accepting_conversations_soundness :
+  forall (n : nat) (a : Vector.t G (2 + n + (2 + n) * (1 + n) / 2)) 
+  (c1 c2 : F) (rs1 rs2 : Vector.t F (2 + n + (2 + n) * (1 + n))) 
+  (gs hs : Vector.t G (2 + n)), [c1] <> [c2] ->
+  neq_accepting_conversations gs hs (a; [c1]; rs1) = true ->
+  neq_accepting_conversations gs hs (a; [c2]; rs2) = true ->
+  exists (xs : Vector.t F (2 + n)), 
+  (forall (i : Fin.t (2 + n)), hs[@i] = gs[@i] ^ xs[@i]) /\
+  ((forall (i j : Fin.t (2 + n)), i <> j -> xs[@i] <> xs[@j]) \/
+  (exists (i j : Fin.t (2 + n)), i <> j /\ 
+  ((exists (alpha : F), gs[@j] = gs[@i] ^ alpha) \/ 
+  gs[@i] = gid \/ gs[@j] = gid)))
 \end{lstlisting}
 
 \begin{lstlisting}[frame=single, language=Coq, caption={Rocq Encoding of the Schnorr Group},
